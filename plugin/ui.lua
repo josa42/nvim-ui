@@ -1,0 +1,1 @@
+require('jg.ui').setup()
