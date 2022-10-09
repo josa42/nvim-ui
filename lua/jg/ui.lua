@@ -1,7 +1,7 @@
 local M = {}
 
 function M.setup()
-  print('setup: nvim-ui')
+  vim.ui.input = require('jg.ui.input')
 end
 
 return M
