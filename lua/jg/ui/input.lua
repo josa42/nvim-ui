@@ -199,40 +199,12 @@ local context = {
   opts = nil,
   on_confirm = nil,
   winid = nil,
-  history_idx = nil,
-  history_tip = nil,
   start_in_insert = nil,
 }
 
 local function set_input(text)
   vim.api.nvim_buf_set_lines(0, 0, -1, true, { text })
   vim.api.nvim_win_set_cursor(0, { 1, vim.api.nvim_strwidth(text) })
-end
-local history = {}
-M.history_prev = function()
-  if context.history_idx == nil then
-    if #history == 0 then
-      return
-    end
-    context.history_tip = vim.api.nvim_buf_get_lines(0, 0, 1, true)[1]
-    context.history_idx = #history
-  elseif context.history_idx == 1 then
-    return
-  else
-    context.history_idx = context.history_idx - 1
-  end
-  set_input(history[context.history_idx])
-end
-M.history_next = function()
-  if not context.history_idx then
-    return
-  elseif context.history_idx == #history then
-    context.history_idx = nil
-    set_input(context.history_tip)
-  else
-    context.history_idx = context.history_idx + 1
-    set_input(history[context.history_idx])
-  end
 end
 
 local function close_completion_window()
@@ -259,9 +231,6 @@ local function confirm(text)
     pcall(vim.api.nvim_win_close, ctx.winid, true)
     if text == '' then
       text = nil
-    end
-    if text and history[#history] ~= text then
-      table.insert(history, text)
     end
     -- Defer the callback because we just closed windows and left insert mode.
     -- In practice from my testing, if the user does something right now (like,
@@ -450,7 +419,6 @@ setmetatable(M, {
       winid = winid,
       on_confirm = on_confirm,
       opts = opts,
-      history_idx = nil,
       start_in_insert = start_in_insert,
     }
     vim.api.nvim_win_set_option(winid, 'winblend', config.winblend)
@@ -465,8 +433,6 @@ setmetatable(M, {
     vim.keymap.set({ 'i', 'n' }, '<CR>', M.confirm, { buffer = bufnr })
     vim.keymap.set({ 'n' }, '<Esc>', M.close, { buffer = bufnr })
     vim.keymap.set({ 'i' }, '<C-c>', M.close, { buffer = bufnr })
-    -- vim.keymap.set({ 'i' }, '<Up>', M.history_prev, { buffer = bufnr })
-    -- vim.keymap.set({ 'i' }, '<Down>', M.history_next, { buffer = bufnr })
 
     if config.insert_only then
       vim.keymap.set('i', '<Esc>', M.close, { buffer = bufnr })
