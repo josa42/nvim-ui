@@ -1,10 +1,4 @@
 local config = {
-  -- Default prompt string
-  default_prompt = 'Input:',
-
-  -- Can be 'left', 'right', or 'center'
-  prompt_align = 'left',
-
   -- When true, <Esc> will close the modal
   insert_only = true,
 
@@ -24,11 +18,6 @@ local config = {
   -- min_width = {20, 0.2} means "the greater of 20 columns or 20% of total"
   max_width = { 140, 0.9 },
   min_width = { 20, 0.2 },
-
-  -- Window transparency (0-100)
-  winblend = 10,
-  -- Change default highlight groups (see :help winhl)
-  winhighlight = '',
 }
 -- local patch = require('dressing.patch')
 
@@ -109,7 +98,7 @@ local util = {
     end
   end,
 
-  calculate_width = function(relative, desired_width, config, winid)
+  calculate_width = function(relative, desired_width, winid)
     return calculate_dim(
       desired_width,
       config.width,
@@ -130,13 +119,12 @@ local util = {
 
   add_title_to_win = function(winid, title, opts)
     opts = opts or {}
-    opts.align = opts.align or 'center'
     if not vim.api.nvim_win_is_valid(winid) then
       return
     end
     -- HACK to force the parent window to position itself
     -- See https://github.com/neovim/neovim/issues/13403
-    vim.cmd('redraw')
+    vim.cmd.redraw()
     local width = math.min(vim.api.nvim_win_get_width(winid) - 4, 2 + vim.api.nvim_strwidth(title))
     local title_winid = winid_map[winid]
     local bufnr
@@ -145,36 +133,24 @@ local util = {
       bufnr = vim.api.nvim_win_get_buf(title_winid)
     else
       bufnr = vim.api.nvim_create_buf(false, true)
-      local col = 1
-      if opts.align == 'center' then
-        col = math.floor((vim.api.nvim_win_get_width(winid) - width) / 2)
-      elseif opts.align == 'right' then
-        col = vim.api.nvim_win_get_width(winid) - 1 - width
-      elseif opts.align ~= 'left' then
-        vim.notify(string.format("Unknown dressing window title alignment: '%s'", opts.align), vim.log.levels.ERROR)
-      end
+
       title_winid = vim.api.nvim_open_win(bufnr, false, {
         relative = 'win',
         win = winid,
         width = width,
         height = 1,
         row = -1,
-        col = col,
+        col = 1,
         focusable = false,
         zindex = 151,
         style = 'minimal',
         noautocmd = true,
       })
       winid_map[winid] = title_winid
-      vim.api.nvim_win_set_option(title_winid, 'winblend', vim.api.nvim_win_get_option(winid, 'winblend'))
       vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
-      vim.cmd(string.format(
-        [[
-      autocmd WinClosed %d ++once lua require('jg.ui.input')._on_win_closed(%d)
-    ]],
-        winid,
-        winid
-      ))
+      vim.cmd(
+        string.format([[ autocmd WinClosed %d ++once lua require('jg.ui.input').remove_title(%d) ]], winid, winid)
+      )
     end
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, { ' ' .. title .. ' ' })
     local ns = vim.api.nvim_create_namespace('DressingWindow')
@@ -183,7 +159,9 @@ local util = {
   end,
 }
 
-util._on_win_closed = function(winid)
+local M = {}
+
+M.remove_title = function(winid)
   local title_winid = winid_map[winid]
   if title_winid and vim.api.nvim_win_is_valid(title_winid) then
     vim.api.nvim_win_close(title_winid, true)
@@ -191,21 +169,12 @@ util._on_win_closed = function(winid)
   winid_map[winid] = nil
 end
 
-local M = {}
-
-M._on_win_closed = util._on_win_closed
-
 local context = {
   opts = nil,
   on_confirm = nil,
   winid = nil,
   start_in_insert = nil,
 }
-
-local function set_input(text)
-  vim.api.nvim_buf_set_lines(0, 0, -1, true, { text })
-  vim.api.nvim_win_set_cursor(0, { 1, vim.api.nvim_strwidth(text) })
-end
 
 local function close_completion_window()
   if vim.fn.pumvisible() == 1 then
@@ -249,29 +218,6 @@ end
 
 M.close = function()
   confirm(context.opts and context.opts.cancelreturn)
-end
-
-M.highlight = function()
-  if not context.opts then
-    return
-  end
-  local bufnr = vim.api.nvim_win_get_buf(context.winid)
-  local opts = context.opts
-  local text = vim.api.nvim_buf_get_lines(bufnr, 0, 1, true)[1]
-  local ns = vim.api.nvim_create_namespace('DressingHighlight')
-  local highlights = {}
-  if type(opts.highlight) == 'function' then
-    highlights = opts.highlight(text)
-  elseif opts.highlight then
-    highlights = vim.fn[opts.highlight](text)
-  end
-  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  for _, highlight in ipairs(highlights) do
-    local start = highlight[1]
-    local stop = highlight[2]
-    local group = highlight[3]
-    vim.api.nvim_buf_add_highlight(bufnr, ns, group, 0, start, stop)
-  end
 end
 
 local function split(string, pattern)
@@ -331,7 +277,7 @@ M.trigger_completion = function()
   end
 end
 
-local function create_or_update_win(config, prompt, opts)
+local function create_or_update_win(prompt, opts)
   local parent_win = 0
   local winopt
   local win_conf
@@ -354,14 +300,17 @@ local function create_or_update_win(config, prompt, opts)
     }
   end
   -- First calculate the desired base width of the modal
-  local prefer_width = util.calculate_width(config.relative, config.prefer_width, config, parent_win)
-  -- Then expand the width to fit the prompt and default value
-  prefer_width = math.max(prefer_width, 4 + vim.api.nvim_strwidth(prompt))
+  local prefer_width = util.calculate_width(config.relative, config.prefer_width, parent_win)
+  if prompt then
+    -- Then expand the width to fit the prompt and default value
+    prefer_width = math.max(prefer_width, 4 + vim.api.nvim_strwidth(prompt))
+  end
+
   if opts.default then
     prefer_width = math.max(prefer_width, 2 + vim.api.nvim_strwidth(opts.default))
   end
   -- Then recalculate to clamp final value to min/max
-  local width = util.calculate_width(config.relative, prefer_width, config, parent_win)
+  local width = util.calculate_width(config.relative, prefer_width, parent_win)
   winopt.row = util.calculate_row(config.relative, 1, parent_win)
   winopt.col = util.calculate_col(config.relative, width, parent_win)
   winopt.width = width
@@ -404,25 +353,16 @@ setmetatable(M, {
       opts = { prompt = tostring(opts) }
     end
 
-    if vim.fn.hlID('DressingInputText') ~= 0 then
-      vim.notify(
-        'DressingInputText highlight group is deprecated. Set winhighlight="NormalFloat:MyHighlightGroup" instead',
-        vim.log.levels.WARN
-      )
-    end
-
     -- Create or update the window
-    local prompt = opts.prompt or config.default_prompt
+    local prompt = opts.prompt
 
-    local winid, start_in_insert = create_or_update_win(config, prompt, opts)
+    local winid, start_in_insert = create_or_update_win(prompt, opts)
     context = {
       winid = winid,
       on_confirm = on_confirm,
       opts = opts,
       start_in_insert = start_in_insert,
     }
-    vim.api.nvim_win_set_option(winid, 'winblend', config.winblend)
-    vim.api.nvim_win_set_option(winid, 'winhighlight', config.winhighlight)
     vim.api.nvim_win_set_option(winid, 'wrap', false)
     local bufnr = vim.api.nvim_win_get_buf(winid)
 
@@ -440,6 +380,7 @@ setmetatable(M, {
 
     vim.api.nvim_buf_set_option(bufnr, 'filetype', 'DressingInput')
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, { opts.default or '' })
+
     -- Disable nvim-cmp if installed
     local ok, cmp = pcall(require, 'cmp')
     if ok then
@@ -447,13 +388,12 @@ setmetatable(M, {
     end
     -- Disable mini.nvim completion if installed
     vim.api.nvim_buf_set_var(bufnr, 'minicompletion_disable', true)
-    util.add_title_to_win(winid, string.gsub(prompt, '^%s*(.-)%s*$', '%1'), { align = config.prompt_align })
 
-    vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
-      desc = 'Update highlights',
-      buffer = bufnr,
-      callback = M.highlight,
-    })
+    if prompt then
+      util.add_title_to_win(winid, string.gsub(prompt, '^%s*(.-)%s*$', '%1'))
+    else
+      M.remove_title(winid)
+    end
 
     if opts.completion then
       vim.api.nvim_buf_set_option(bufnr, 'completefunc', 'v:lua.dressing_input_complete')
@@ -473,7 +413,6 @@ setmetatable(M, {
       vim.cmd('startinsert!')
     end
     close_completion_window()
-    M.highlight()
   end),
 })
 
