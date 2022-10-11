@@ -269,28 +269,24 @@ M.trigger_completion = function()
   end
 end
 
-local function create_or_update_win(prompt, opts)
+local function create_win(prompt, opts)
   local parent_win = 0
   local winopt
   local win_conf
+
   -- If the previous window is still open and valid, we're going to update it
   if context.winid and vim.api.nvim_win_is_valid(context.winid) then
-    win_conf = vim.api.nvim_win_get_config(context.winid)
-    parent_win = win_conf.win
-    winopt = {
-      relative = win_conf.relative,
-      win = win_conf.win,
-    }
-  else
-    winopt = {
-      relative = config.relative,
-      anchor = config.anchor,
-      border = config.border,
-      height = 1,
-      style = 'minimal',
-      noautocmd = true,
-    }
+    vim.api.nvim_win_close(context.winid, true)
   end
+
+  winopt = {
+    relative = config.relative,
+    anchor = config.anchor,
+    border = config.border,
+    height = 1,
+    style = 'minimal',
+    noautocmd = true,
+  }
   -- First calculate the desired base width of the modal
   local prefer_width = calculate_width(config.relative, config.prefer_width, parent_win)
   if prompt then
@@ -348,7 +344,7 @@ setmetatable(M, {
     -- Create or update the window
     local prompt = opts.prompt
 
-    local winid, start_in_insert = create_or_update_win(prompt, opts)
+    local winid, start_in_insert = create_win(prompt, opts)
     context = {
       winid = winid,
       on_confirm = on_confirm,
