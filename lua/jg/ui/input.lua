@@ -81,83 +81,75 @@ local function get_max_height(relative, winid)
     return vim.api.nvim_win_get_height(winid or 0)
   end
 end
-local util = {
-  calculate_col = function(relative, width, winid)
-    if relative == 'cursor' then
-      return 0
+
+local function calculate_col(relative, width, winid)
+  if relative == 'cursor' then
+    return 0
+  else
+    return math.floor((get_max_width(relative, winid) - width) / 2)
+  end
+end
+
+local function calculate_row(relative, height, winid)
+  if relative == 'cursor' then
+    return 0
+  else
+    return math.floor((get_max_height(relative, winid) - height) / 2)
+  end
+end
+
+local function calculate_width(relative, desired_width, winid)
+  return calculate_dim(desired_width, config.width, config.min_width, config.max_width, get_max_width(relative, winid))
+end
+
+local function schedule_wrap_before_vimenter(func)
+  return function(...)
+    if vim.v.vim_did_enter == 0 then
+      return vim.schedule_wrap(func)(...)
     else
-      return math.floor((get_max_width(relative, winid) - width) / 2)
+      return func(...)
     end
-  end,
+  end
+end
 
-  calculate_row = function(relative, height, winid)
-    if relative == 'cursor' then
-      return 0
-    else
-      return math.floor((get_max_height(relative, winid) - height) / 2)
-    end
-  end,
+local function add_title_to_win(winid, title, opts)
+  opts = opts or {}
+  if not vim.api.nvim_win_is_valid(winid) then
+    return
+  end
+  -- HACK to force the parent window to position itself
+  -- See https://github.com/neovim/neovim/issues/13403
+  vim.cmd.redraw()
+  local width = math.min(vim.api.nvim_win_get_width(winid) - 4, 2 + vim.api.nvim_strwidth(title))
+  local title_winid = winid_map[winid]
+  local bufnr
+  if title_winid and vim.api.nvim_win_is_valid(title_winid) then
+    vim.api.nvim_win_set_width(title_winid, width)
+    bufnr = vim.api.nvim_win_get_buf(title_winid)
+  else
+    bufnr = vim.api.nvim_create_buf(false, true)
 
-  calculate_width = function(relative, desired_width, winid)
-    return calculate_dim(
-      desired_width,
-      config.width,
-      config.min_width,
-      config.max_width,
-      get_max_width(relative, winid)
-    )
-  end,
-  schedule_wrap_before_vimenter = function(func)
-    return function(...)
-      if vim.v.vim_did_enter == 0 then
-        return vim.schedule_wrap(func)(...)
-      else
-        return func(...)
-      end
-    end
-  end,
-
-  add_title_to_win = function(winid, title, opts)
-    opts = opts or {}
-    if not vim.api.nvim_win_is_valid(winid) then
-      return
-    end
-    -- HACK to force the parent window to position itself
-    -- See https://github.com/neovim/neovim/issues/13403
-    vim.cmd.redraw()
-    local width = math.min(vim.api.nvim_win_get_width(winid) - 4, 2 + vim.api.nvim_strwidth(title))
-    local title_winid = winid_map[winid]
-    local bufnr
-    if title_winid and vim.api.nvim_win_is_valid(title_winid) then
-      vim.api.nvim_win_set_width(title_winid, width)
-      bufnr = vim.api.nvim_win_get_buf(title_winid)
-    else
-      bufnr = vim.api.nvim_create_buf(false, true)
-
-      title_winid = vim.api.nvim_open_win(bufnr, false, {
-        relative = 'win',
-        win = winid,
-        width = width,
-        height = 1,
-        row = -1,
-        col = 1,
-        focusable = false,
-        zindex = 151,
-        style = 'minimal',
-        noautocmd = true,
-      })
-      winid_map[winid] = title_winid
-      vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
-      vim.cmd(
-        string.format([[ autocmd WinClosed %d ++once lua require('jg.ui.input').remove_title(%d) ]], winid, winid)
-      )
-    end
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, { ' ' .. title .. ' ' })
-    local ns = vim.api.nvim_create_namespace('DressingWindow')
-    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-    vim.api.nvim_buf_add_highlight(bufnr, ns, 'FloatTitle', 0, 0, -1)
-  end,
-}
+    title_winid = vim.api.nvim_open_win(bufnr, false, {
+      relative = 'win',
+      win = winid,
+      width = width,
+      height = 1,
+      row = -1,
+      col = 1,
+      focusable = false,
+      zindex = 151,
+      style = 'minimal',
+      noautocmd = true,
+    })
+    winid_map[winid] = title_winid
+    vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
+    vim.cmd(string.format([[ autocmd WinClosed %d ++once lua require('jg.ui.input').remove_title(%d) ]], winid, winid))
+  end
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, { ' ' .. title .. ' ' })
+  local ns = vim.api.nvim_create_namespace('DressingWindow')
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  vim.api.nvim_buf_add_highlight(bufnr, ns, 'FloatTitle', 0, 0, -1)
+end
 
 local M = {}
 
@@ -300,7 +292,7 @@ local function create_or_update_win(prompt, opts)
     }
   end
   -- First calculate the desired base width of the modal
-  local prefer_width = util.calculate_width(config.relative, config.prefer_width, parent_win)
+  local prefer_width = calculate_width(config.relative, config.prefer_width, parent_win)
   if prompt then
     -- Then expand the width to fit the prompt and default value
     prefer_width = math.max(prefer_width, 4 + vim.api.nvim_strwidth(prompt))
@@ -310,9 +302,9 @@ local function create_or_update_win(prompt, opts)
     prefer_width = math.max(prefer_width, 2 + vim.api.nvim_strwidth(opts.default))
   end
   -- Then recalculate to clamp final value to min/max
-  local width = util.calculate_width(config.relative, prefer_width, parent_win)
-  winopt.row = util.calculate_row(config.relative, 1, parent_win)
-  winopt.col = util.calculate_col(config.relative, width, parent_win)
+  local width = calculate_width(config.relative, prefer_width, parent_win)
+  winopt.row = calculate_row(config.relative, 1, parent_win)
+  winopt.col = calculate_col(config.relative, width, parent_win)
   winopt.width = width
 
   if win_conf and config.relative == 'cursor' then
@@ -344,7 +336,7 @@ end
 setmetatable(M, {
   -- use schedule_wrap to avoid a bug when vim opens
   -- (see https://github.com/stevearc/dressing.nvim/issues/15)
-  __call = util.schedule_wrap_before_vimenter(function(_, opts, on_confirm)
+  __call = schedule_wrap_before_vimenter(function(_, opts, on_confirm)
     vim.validate({
       on_confirm = { on_confirm, 'function', false },
     })
@@ -390,7 +382,7 @@ setmetatable(M, {
     vim.api.nvim_buf_set_var(bufnr, 'minicompletion_disable', true)
 
     if prompt then
-      util.add_title_to_win(winid, string.gsub(prompt, '^%s*(.-)%s*$', '%1'))
+      add_title_to_win(winid, string.gsub(prompt, '^%s*(.-)%s*$', '%1'))
     else
       M.remove_title(winid)
     end
