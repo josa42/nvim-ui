@@ -213,45 +213,54 @@ M.close = function()
 end
 
 M.completefunc = function(findstart, base)
-  if not context.opts or not context.opts.completion then
-    return findstart == 1 and 0 or {}
-  end
   if findstart == 1 then
     return 0
+  elseif not context.opts or not context.opts.completion then
+    return {}
   else
     local completion = context.opts.completion
     local pieces = vim.fn.split(completion, ',')
     if pieces[1] == 'custom' or pieces[1] == 'customlist' then
-      local vimfunc = pieces[2]
-      local ret
-      if vim.startswith(vimfunc, 'v:lua.') then
-        local load_func = string.format('return %s(...)', vimfunc:sub(7))
-        local luafunc, err = loadstring(load_func)
-        if not luafunc then
-          vim.api.nvim_err_writeln(string.format('Could not find completion function %s: %s', vimfunc, err))
+      local vim_fn = pieces[2]
+      local fn = vim.fn[vim_fn]
+
+      if vim.startswith(vim_fn, 'v:lua.') then
+        local luafunc, err = loadstring(('return %s(...)'):format(vim_fn:sub(7)))
+        if err ~= nil then
+          vim.api.nvim_err_writeln(string.format('Could not find completion function %s: %s', vim_fn, err))
           return {}
         end
-        ret = luafunc(base, base, vim.fn.strlen(base))
-      else
-        ret = vim.fn[vimfunc](base, base, vim.fn.strlen(base))
+        fn = luafunc
       end
+
+      if not fn then
+        return {}
+      end
+
+      local ok, result = pcall(fn, base, base, vim.fn.strlen(base))
+      if not ok then
+        vim.api.nvim_err_writeln(string.format("Faild to call completion method '%s'", completion))
+        return {}
+      end
+
       if pieces[1] == 'custom' then
-        ret = vim.fn.split(ret, '\n')
+        return vim.fn.split(result, '\n')
       end
-      return ret
+
+      return result
     else
       local ok, result = pcall(vim.fn.getcompletion, base, context.opts.completion)
       if ok then
         return result
       else
-        vim.api.nvim_err_writeln(string.format("dressing.nvim: unsupported completion method '%s'", completion))
+        vim.api.nvim_err_writeln(string.format("Unsupported completion method '%s'", completion))
         return {}
       end
     end
   end
 end
 
-_G.dressing_input_complete = M.completefunc
+_G.jg_ui_input_complete = M.completefunc
 
 M.trigger_completion = function()
   if vim.fn.pumvisible() == 1 then
@@ -330,7 +339,7 @@ setmetatable(M, {
       vim.keymap.set('i', '<Esc>', M.close, { buffer = bufnr })
     end
 
-    vim.api.nvim_buf_set_option(bufnr, 'filetype', 'DressingInput')
+    vim.api.nvim_buf_set_option(bufnr, 'filetype', 'ui-input')
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, { opts.default or '' })
 
     -- Disable nvim-cmp if installed
@@ -348,7 +357,7 @@ setmetatable(M, {
     end
 
     if opts.completion then
-      vim.api.nvim_buf_set_option(bufnr, 'completefunc', 'v:lua.dressing_input_complete')
+      vim.api.nvim_buf_set_option(bufnr, 'completefunc', 'v:lua.jg_ui_input_complete')
       vim.api.nvim_buf_set_option(bufnr, 'omnifunc', '')
       vim.keymap.set('i', '<Tab>', M.trigger_completion, { buffer = bufnr, expr = true })
     end
