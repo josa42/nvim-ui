@@ -1,35 +1,3 @@
-local map_util = {
-  create_plug_maps = function(bufnr, plug_bindings)
-    for _, binding in ipairs(plug_bindings) do
-      vim.keymap.set('', binding.plug, binding.rhs, { buffer = bufnr, desc = binding.desc })
-    end
-  end,
-  create_maps_to_plug = function(bufnr, mode, bindings, prefix)
-    local maps
-    if mode == 'i' then
-      maps = vim.api.nvim_buf_get_keymap(bufnr, '')
-    end
-    for lhs, rhs in pairs(bindings) do
-      if rhs then
-        -- Prefix with <Plug> unless this is a <Cmd> or :Cmd mapping
-        if type(rhs) == 'string' and not rhs:match('[<:]') then
-          rhs = '<Plug>' .. prefix .. rhs
-        end
-        if mode == 'i' then
-          -- HACK for some reason I can't get plug mappings to work in insert mode
-          for _, map in ipairs(maps) do
-            if map.lhs == rhs then
-              rhs = map.callback or map.rhs
-              break
-            end
-          end
-        end
-        vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, remap = true })
-      end
-    end
-  end,
-}
-
 local config = {
   -- Default prompt string
   default_prompt = 'Input:',
@@ -61,20 +29,6 @@ local config = {
   winblend = 10,
   -- Change default highlight groups (see :help winhl)
   winhighlight = '',
-
-  -- Set to `false` to disable
-  mappings = {
-    n = {
-      ['<Esc>'] = 'Close',
-      ['<CR>'] = 'Confirm',
-    },
-    i = {
-      ['<C-c>'] = 'Close',
-      ['<CR>'] = 'Confirm',
-      ['<Up>'] = 'HistoryPrev',
-      ['<Down>'] = 'HistoryNext',
-    },
-  },
 }
 -- local patch = require('dressing.patch')
 
@@ -248,37 +202,6 @@ local context = {
   history_idx = nil,
   history_tip = nil,
   start_in_insert = nil,
-}
-
-local keymaps = {
-  {
-    desc = 'Close vim.ui.input without a result',
-    plug = '<Plug>DressingInput:Close',
-    rhs = function()
-      M.close()
-    end,
-  },
-  {
-    desc = 'Close vim.ui.input with the current buffer contents',
-    plug = '<Plug>DressingInput:Confirm',
-    rhs = function()
-      M.confirm()
-    end,
-  },
-  {
-    desc = 'Show previous vim.ui.input history entry',
-    plug = '<Plug>DressingInput:HistoryPrev',
-    rhs = function()
-      M.history_prev()
-    end,
-  },
-  {
-    desc = 'Show next vim.ui.input history entry',
-    plug = '<Plug>DressingInput:HistoryNext',
-    rhs = function()
-      M.history_next()
-    end,
-  },
 }
 
 local function set_input(text)
@@ -539,10 +462,11 @@ setmetatable(M, {
     vim.api.nvim_buf_set_option(bufnr, 'swapfile', false)
     vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
 
-    map_util.create_plug_maps(bufnr, keymaps)
-    for mode, user_maps in pairs(config.mappings) do
-      map_util.create_maps_to_plug(bufnr, mode, user_maps, 'DressingInput:')
-    end
+    vim.keymap.set({ 'i', 'n' }, '<CR>', M.confirm, { buffer = bufnr })
+    vim.keymap.set({ 'n' }, '<Esc>', M.close, { buffer = bufnr })
+    vim.keymap.set({ 'i' }, '<C-c>', M.close, { buffer = bufnr })
+    -- vim.keymap.set({ 'i' }, '<Up>', M.history_prev, { buffer = bufnr })
+    -- vim.keymap.set({ 'i' }, '<Down>', M.history_next, { buffer = bufnr })
 
     if config.insert_only then
       vim.keymap.set('i', '<Esc>', M.close, { buffer = bufnr })
