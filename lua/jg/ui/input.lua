@@ -212,14 +212,6 @@ M.close = function()
   confirm(context.opts and context.opts.cancelreturn)
 end
 
-local function split(string, pattern)
-  local ret = {}
-  for token in string.gmatch(string, '[^' .. pattern .. ']+') do
-    table.insert(ret, token)
-  end
-  return ret
-end
-
 M.completefunc = function(findstart, base)
   if not context.opts or not context.opts.completion then
     return findstart == 1 and 0 or {}
@@ -228,7 +220,7 @@ M.completefunc = function(findstart, base)
     return 0
   else
     local completion = context.opts.completion
-    local pieces = split(completion, ',')
+    local pieces = vim.fn.split(completion, ',')
     if pieces[1] == 'custom' or pieces[1] == 'customlist' then
       local vimfunc = pieces[2]
       local ret
@@ -244,7 +236,7 @@ M.completefunc = function(findstart, base)
         ret = vim.fn[vimfunc](base, base, vim.fn.strlen(base))
       end
       if pieces[1] == 'custom' then
-        ret = split(ret, '\n')
+        ret = vim.fn.split(ret, '\n')
       end
       return ret
     else
@@ -270,63 +262,35 @@ M.trigger_completion = function()
 end
 
 local function create_win(prompt, opts)
-  local parent_win = 0
-  local winopt
-  local win_conf
-
-  -- If the previous window is still open and valid, we're going to update it
+  -- close still open window
   if context.winid and vim.api.nvim_win_is_valid(context.winid) then
     vim.api.nvim_win_close(context.winid, true)
   end
 
-  winopt = {
+  -- First calculate the desired base width of the modal
+  -- Then expand the width to fit the prompt and default value
+  local prefer_width = math.max(
+    calculate_width(config.relative, config.prefer_width, 0),
+    4 + vim.api.nvim_strwidth(prompt or ''),
+    2 + vim.api.nvim_strwidth(opts.default or '')
+  )
+  local width = calculate_width(config.relative, prefer_width, 0)
+
+  local start_in_insert = string.sub(vim.api.nvim_get_mode().mode, 1, 1) == 'i'
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local winid = vim.api.nvim_open_win(bufnr, true, {
     relative = config.relative,
     anchor = config.anchor,
     border = config.border,
     height = 1,
     style = 'minimal',
     noautocmd = true,
-  }
-  -- First calculate the desired base width of the modal
-  local prefer_width = calculate_width(config.relative, config.prefer_width, parent_win)
-  if prompt then
-    -- Then expand the width to fit the prompt and default value
-    prefer_width = math.max(prefer_width, 4 + vim.api.nvim_strwidth(prompt))
-  end
+    row = calculate_row(config.relative, 1, 0),
+    col = calculate_col(config.relative, width, 0),
+    width = width,
+  })
 
-  if opts.default then
-    prefer_width = math.max(prefer_width, 2 + vim.api.nvim_strwidth(opts.default))
-  end
-  -- Then recalculate to clamp final value to min/max
-  local width = calculate_width(config.relative, prefer_width, parent_win)
-  winopt.row = calculate_row(config.relative, 1, parent_win)
-  winopt.col = calculate_col(config.relative, width, parent_win)
-  winopt.width = width
-
-  if win_conf and config.relative == 'cursor' then
-    -- If we're cursor-relative we should actually not adjust the row/col to
-    -- prevent jumping. Also remove related args.
-    if config.relative == 'cursor' then
-      winopt.row = nil
-      winopt.col = nil
-      winopt.relative = nil
-      winopt.win = nil
-    end
-  end
-
-  -- If the floating win was already open
-  if win_conf then
-    -- Make sure the previous on_confirm callback is called with nil
-    vim.schedule(context.on_confirm)
-    vim.api.nvim_win_set_config(context.winid, winopt)
-    local start_in_insert = context.start_in_insert
-    return context.winid, start_in_insert
-  else
-    local start_in_insert = string.sub(vim.api.nvim_get_mode().mode, 1, 1) == 'i'
-    local bufnr = vim.api.nvim_create_buf(false, true)
-    local winid = vim.api.nvim_open_win(bufnr, true, winopt)
-    return winid, start_in_insert
-  end
+  return winid, start_in_insert
 end
 
 setmetatable(M, {
