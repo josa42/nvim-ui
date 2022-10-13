@@ -102,16 +102,6 @@ local function calculate_width(relative, desired_width, winid)
   return calculate_dim(desired_width, config.width, config.min_width, config.max_width, get_max_width(relative, winid))
 end
 
-local function schedule_wrap_before_vimenter(func)
-  return function(...)
-    if vim.v.vim_did_enter == 0 then
-      return vim.schedule_wrap(func)(...)
-    else
-      return func(...)
-    end
-  end
-end
-
 local function add_title_to_win(winid, title, opts)
   opts = opts or {}
   if not vim.api.nvim_win_is_valid(winid) then
@@ -305,7 +295,7 @@ end
 setmetatable(M, {
   -- use schedule_wrap to avoid a bug when vim opens
   -- (see https://github.com/stevearc/dressing.nvim/issues/15)
-  __call = schedule_wrap_before_vimenter(function(_, opts, on_confirm)
+  __call = vim.schedule_wrap(function(_, opts, on_confirm)
     vim.validate({
       on_confirm = { on_confirm, 'function', false },
     })
